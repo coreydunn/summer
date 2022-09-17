@@ -9,6 +9,7 @@
 #include<string.h>
 #include<unistd.h>
 #include<stdbool.h>
+#include"vec.h"
 
 #define SUM_TYPE uint64_t
 #define BLOCK_SIZE 8192
@@ -83,9 +84,10 @@ char*human_number(SUM_TYPE n)
 int main(int argc,char**argv)
 {
 	FileInfo fi[MAX_THREADS];
+	Vec files=vec_new();
 	bool human = false;
 	bool quiet = true;
-	char*file_name=NULL;
+	//char*file_name=NULL;
 	pthread_t thread_pool[MAX_THREADS];
 	size_t bytes_per_thread=0;
 	size_t file_size=0;
@@ -136,77 +138,86 @@ int main(int argc,char**argv)
 		{
 			if(!quiet)
 				printf("filename '%s'\n",argv[i]);
-			file_name=argv[i];
+			vec_push(&files,argv[i]);
+			//file_name=argv[i];
 		}
 	}
 
-	// Check if file exists, get file size
-	{
-		int fd=0;
-		if(file_name)
-			fd=open(file_name,O_RDONLY);
-		if(fd<0)
-		{
-			fprintf(stdout,"error: failed to open file '%s'\n",file_name);
-			exit(1);
-		}
-		file_size=lseek(fd,0,SEEK_END);
-		close(fd);
-	}
-
-	// Get # of processors for machine
-	nthreads=nproc;
-	bytes_per_thread=ceil((double)file_size/nthreads);
-	if(!quiet)
-	{
-		printf("File Size: %lu\n",file_size);
-		printf("Number of threads: %lu\n",nthreads);
-		printf("Bytes to Read Per Thread: %lu\n",bytes_per_thread);
-		printf("___\n");
-	}
-
-	if(file_name==NULL)
+	// No files
+	if(files.n==0)
 	{
 		//fprintf(stderr,"error: stdin not implemented yet, sorry\n");
 		printf("%s\n",HELPMSG);
 		exit(1);
 	}
 
-	// Divide file into nthreads parts, open threads for each part
-	for(size_t i=0;i<nthreads;++i)
+	// Iterate through all specified files
+	for(size_t vi=0;vi<files.n;++vi)
 	{
-		if(!quiet)
-			printf("Creating thread #%lu: ",i);
-		size_t size=(i*bytes_per_thread+bytes_per_thread<file_size)?
-			(bytes_per_thread):
-			(file_size-i*bytes_per_thread);
+		// Check if file exists, get file size
+		{
+			int fd=0;
+			if(files.b[vi].b)
+				fd=open(files.b[vi].b,O_RDONLY);
+			if(fd<0)
+			{
+				fprintf(stdout,"error: failed to open file '%s'\n",files.b[vi].b);
+				exit(1);
+			}
+			file_size=lseek(fd,0,SEEK_END);
+			close(fd);
+		}
 
-		fi[i]=(FileInfo){
-			.quiet=quiet,
-			.thread_id=i,
-			.file_name=file_name,
-			.offset=i*bytes_per_thread,
-			.size=size
-		};
+		// Get # of processors for machine
+		nthreads=nproc;
+		bytes_per_thread=ceil((double)file_size/nthreads);
+		if(!quiet)
+		{
+			printf("File Size: %lu\n",file_size);
+			printf("Number of threads: %lu\n",nthreads);
+			printf("Bytes to Read Per Thread: %lu\n",bytes_per_thread);
+			printf("___\n");
+		}
+
+		// Divide file into nthreads parts, open threads for each part
+		for(size_t i=0;i<nthreads;++i)
+		{
+			if(!quiet)
+				printf("Creating thread #%lu: ",i);
+			size_t size=(i*bytes_per_thread+bytes_per_thread<file_size)?
+				(bytes_per_thread):
+				(file_size-i*bytes_per_thread);
+
+			fi[i]=(FileInfo){
+				.quiet=quiet,
+					.thread_id=i,
+					.file_name=files.b[vi].b,
+					.offset=i*bytes_per_thread,
+					.size=size
+			};
+
+			if(!quiet)
+				printf("Reading %lu starting at %lu\n",fi[i].size,fi[i].offset);
+			pthread_create(thread_pool+i,NULL,t,fi+i);
+		}
 
 		if(!quiet)
-			printf("Reading %lu starting at %lu\n",fi[i].size,fi[i].offset);
-		pthread_create(thread_pool+i,NULL,t,fi+i);
+			printf("main\n");
+		SUM_TYPE sum=0;
+		for(size_t i=0;i<nthreads;++i)
+		{
+			pthread_join(thread_pool[i],NULL);
+			sum+=fi[i].sum;
+		}
+
+		if(!quiet)
+			printf("___\n");
+		if(human)
+			printf("%s\t%s\n",human_number(sum),files.b[vi].b);
+		else
+			printf("%lu\t%s\n",sum,files.b[vi].b);
+
 	}
 
-	if(!quiet)
-		printf("main\n");
-	SUM_TYPE sum=0;
-	for(size_t i=0;i<nthreads;++i)
-	{
-		pthread_join(thread_pool[i],NULL);
-		sum+=fi[i].sum;
-	}
-
-	if(!quiet)
-		printf("___\n");
-	if(human)
-		printf("%s\t%s\n",human_number(sum),file_name);
-	else
-		printf("%lu\t%s\n",sum,file_name);
+	vec_free(&files);
 }
