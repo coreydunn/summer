@@ -8,24 +8,23 @@
 #include<stdlib.h>
 #include<string.h>
 #include<unistd.h>
+#include<stdbool.h>
 
 #define SUM_TYPE uint64_t
 #define BLOCK_SIZE 8192
 #define MAX_THREADS 4
 #define min(a,b) ((a<b)?(a):(b))
-#define HELPMSG "usage: summer [-jN] [--help] [FILENAME]"
-
-// Do no print debug information
-int quiet = 1;
+#define HELPMSG "usage: summer [-jN] [-vh] [--help] [FILENAME]"
 
 // Data structure to pass arguments to thread
 typedef struct FileInfo
 {
-	size_t thread_id; // To tell them apart
+	SUM_TYPE sum; // Store value
+	bool quiet; // Print to stdout?
 	char*file_name; // File name
 	size_t offset; // Where to start reading (in bytes)
 	size_t size; // How many bytes to read
-	SUM_TYPE sum; // Store value
+	size_t thread_id; // To tell them apart
 } FileInfo;
 
 // Thread to handle part of file
@@ -40,7 +39,7 @@ void*t(void*f)
 	if(fd<0)
 		fprintf(stdout,"error: failed to open file '%s'\n",fi.file_name);
 
-	if(!quiet)
+	if(!fi.quiet)
 		printf("thread #%lu\n",fi.thread_id);
 	lseek(fd,fi.offset,SEEK_SET);
 	while(pos<fi.offset+fi.size)
@@ -53,7 +52,7 @@ void*t(void*f)
 			fi.sum+=buf[i];
 		pos+=nr;
 	}
-	if(!quiet)
+	if(!fi.quiet)
 		printf("Thread #%lu sum: %lu\n",fi.thread_id,fi.sum);
 
 	FileInfo*y=(FileInfo*)f;
@@ -61,16 +60,38 @@ void*t(void*f)
 	return NULL;
 }
 
+// Treat n as number of bytes,
+// return string in human readable form
+char*human_number(SUM_TYPE n)
+{
+	static char s[128]="";
+
+	if(n>=1000000000000)
+		sprintf(s,"%.1fT",n/1000000000000.0);
+	else if(n>=1000000000)
+		sprintf(s,"%.1fG",n/1000000000.0);
+	else if(n>=1000000)
+		sprintf(s,"%.1fM",n/1000000.0);
+	else if(n>=1000)
+		sprintf(s,"%.1fK",n/1000.0);
+	else
+		sprintf(s,"%lu",n);
+	return s;
+}
+
 // Entry point
 int main(int argc,char**argv)
 {
 	FileInfo fi[MAX_THREADS];
+	bool human = false;
+	bool quiet = true;
 	char*file_name=NULL;
 	pthread_t thread_pool[MAX_THREADS];
 	size_t bytes_per_thread=0;
 	size_t file_size=0;
 	size_t nthreads=MAX_THREADS;
 	uint32_t nproc=1;
+
 
 	nproc=sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -93,7 +114,11 @@ int main(int argc,char**argv)
 						break;
 
 					case 'v':
-						quiet=0;
+						quiet=false;
+						break;
+
+					case 'h':
+						human=true;
 						break;
 
 					case 'j':
@@ -157,6 +182,7 @@ int main(int argc,char**argv)
 			(file_size-i*bytes_per_thread);
 
 		fi[i]=(FileInfo){
+			.quiet=quiet,
 			.thread_id=i,
 			.file_name=file_name,
 			.offset=i*bytes_per_thread,
@@ -179,5 +205,8 @@ int main(int argc,char**argv)
 
 	if(!quiet)
 		printf("___\n");
-	printf("%lu\t%s\n",sum,file_name);
+	if(human)
+		printf("%s\t%s\n",human_number(sum),file_name);
+	else
+		printf("%lu\t%s\n",sum,file_name);
 }
