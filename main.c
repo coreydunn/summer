@@ -2,13 +2,14 @@
 #include<math.h>
 #include<pthread.h>
 #include<signal.h>
+#include<stdbool.h>
 #include<stdint.h>
 #include<stdio.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+#include<sys/stat.h>
 #include<unistd.h>
-#include<stdbool.h>
 #include"vec.h"
 
 #define SUM_TYPE uint64_t
@@ -157,6 +158,16 @@ int main(int argc,char**argv)
 		// Check if file exists, get file size
 		{
 			int fd=0;
+			struct stat checkmode;
+
+			// Skip file if it is a directory
+			stat(files.b[vi].b,&checkmode);
+			if(checkmode.st_mode&S_IFDIR)
+			{
+				fprintf(stderr,"warning: skipping directory '%s'\n",files.b[vi].b);
+				continue;
+			}
+
 			if(files.b[vi].b)
 				fd=open(files.b[vi].b,O_RDONLY);
 			if(fd<0)
