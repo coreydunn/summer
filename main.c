@@ -90,10 +90,12 @@ int main(int argc,char**argv)
 	size_t bytes_per_thread=0;
 	size_t file_size=0;
 	size_t nthreads=MAX_THREADS;
-	uint32_t nproc=1;
+	size_t nthreads_desired=MAX_THREADS;
+	size_t maxthreads=MAX_THREADS;
 
 
-	nproc=sysconf(_SC_NPROCESSORS_ONLN);
+	maxthreads=sysconf(_SC_NPROCESSORS_ONLN);
+	nthreads_desired=maxthreads;
 
 	// Parse command line options
 	// (short options, long options, filename)
@@ -123,8 +125,8 @@ int main(int argc,char**argv)
 
 					case 'j':
 						if(!quiet)
-							printf("setting nproc to '%s'\n",argv[i]+j+1);
-						nproc=atoi(argv[i]+j+1);
+							printf("setting nthreads_desired to '%s'\n",argv[i]+j+1);
+						nthreads_desired=atoi(argv[i]+j+1);
 						//++i;
 						break;
 
@@ -157,15 +159,19 @@ int main(int argc,char**argv)
 					fd=open(argv[i],O_RDONLY);
 				if(fd<0)
 				{
-					fprintf(stdout,"error: failed to open file '%s'\n",argv[i]);
-					//exit(1);
+					fprintf(stderr,"error: failed to open file '%s'\n",argv[i]);
+					continue;
 				}
 				file_size=lseek(fd,0,SEEK_END);
 				close(fd);
 			}
 
 			// Get # of processors for machine
-			nthreads=nproc;
+			if(file_size>BLOCK_SIZE*8)
+				nthreads=nthreads_desired;
+			else
+				nthreads=1;
+
 			bytes_per_thread=ceil((double)file_size/nthreads);
 			if(!quiet)
 			{
@@ -200,13 +206,13 @@ int main(int argc,char**argv)
 
 			if(!quiet)
 				printf("main\n");
-
 			t(fi+0);
 
 			SUM_TYPE sum=0;
-			for(size_t k=1;k<nthreads;++k)
+			for(size_t k=0;k<nthreads;++k)
 			{
-				pthread_join(thread_pool[k],NULL);
+				if(k>0)
+					pthread_join(thread_pool[k],NULL);
 				sum+=fi[k].sum;
 			}
 
