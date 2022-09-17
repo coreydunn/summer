@@ -194,13 +194,17 @@ int main(int argc,char**argv)
 
 				if(!quiet)
 					printf("Reading %lu starting at %lu\n",fi[k].size,fi[k].offset);
-				pthread_create(thread_pool+k,NULL,t,fi+k);
+				if(k!=0)
+					pthread_create(thread_pool+k,NULL,t,fi+k);
 			}
 
 			if(!quiet)
 				printf("main\n");
+
+			t(fi+0);
+
 			SUM_TYPE sum=0;
-			for(size_t k=0;k<nthreads;++k)
+			for(size_t k=1;k<nthreads;++k)
 			{
 				pthread_join(thread_pool[k],NULL);
 				sum+=fi[k].sum;
