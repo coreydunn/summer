@@ -162,9 +162,9 @@ int main(int argc,char**argv)
 
 			// Skip file if it is a directory
 			stat(files.b[vi].b,&checkmode);
-			if(checkmode.st_mode&S_IFDIR)
+			if(!(checkmode.st_mode&S_IFREG))
 			{
-				fprintf(stderr,"warning: skipping directory '%s'\n",files.b[vi].b);
+				fprintf(stderr,"warning: skipping non-regular file '%s'\n",files.b[vi].b);
 				continue;
 			}
 
