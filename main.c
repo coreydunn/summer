@@ -10,7 +10,6 @@
 #include<string.h>
 #include<sys/stat.h>
 #include<unistd.h>
-#include"vec.h"
 
 #define SUM_TYPE uint64_t
 #define BLOCK_SIZE 8192
@@ -33,7 +32,7 @@ typedef struct FileInfo
 void*t(void*f)
 {
 	FileInfo fi=*(FileInfo*)f;
-	int fd=0; // Open stdin by default
+	int fd=-1; // Open stdin by default
 	size_t pos=fi.offset;
 
 	if(fi.file_name) // Open file if specified
@@ -85,10 +84,8 @@ char*human_number(SUM_TYPE n)
 int main(int argc,char**argv)
 {
 	FileInfo fi[MAX_THREADS];
-	Vec files=vec_new();
 	bool human = false;
 	bool quiet = true;
-	//char*file_name=NULL;
 	pthread_t thread_pool[MAX_THREADS];
 	size_t bytes_per_thread=0;
 	size_t file_size=0;
@@ -133,102 +130,90 @@ int main(int argc,char**argv)
 
 					default:
 				}
+			//++i;
 		}
 
+		// Not a CLI switch
+		// Treat as a filename
 		else
 		{
 			if(!quiet)
 				printf("filename '%s'\n",argv[i]);
-			vec_push(&files,argv[i]);
-			//file_name=argv[i];
-		}
-	}
 
-	// No files
-	if(files.n==0)
-	{
-		//fprintf(stderr,"error: stdin not implemented yet, sorry\n");
-		printf("%s\n",HELPMSG);
-		exit(1);
-	}
-
-	// Iterate through all specified files
-	for(size_t vi=0;vi<files.n;++vi)
-	{
-		// Check if file exists, get file size
-		{
-			int fd=0;
-			struct stat checkmode;
-
-			// Skip file if it is a directory
-			stat(files.b[vi].b,&checkmode);
-			if(!(checkmode.st_mode&S_IFREG))
+			// Check if file exists, get file size
 			{
-				fprintf(stderr,"warning: skipping non-regular file '%s'\n",files.b[vi].b);
-				continue;
+				int fd=-1;
+				struct stat checkmode;
+
+				// Skip file if it is a directory
+				stat(argv[i],&checkmode);
+				if(!(checkmode.st_mode&S_IFREG))
+				{
+					fprintf(stderr,"warning: skipping non-regular file '%s'\n",argv[i]);
+					continue;
+				}
+
+				if(argv[i])
+					fd=open(argv[i],O_RDONLY);
+				if(fd<0)
+				{
+					fprintf(stdout,"error: failed to open file '%s'\n",argv[i]);
+					//exit(1);
+				}
+				file_size=lseek(fd,0,SEEK_END);
+				close(fd);
 			}
 
-			if(files.b[vi].b)
-				fd=open(files.b[vi].b,O_RDONLY);
-			if(fd<0)
+			// Get # of processors for machine
+			nthreads=nproc;
+			bytes_per_thread=ceil((double)file_size/nthreads);
+			if(!quiet)
 			{
-				fprintf(stdout,"error: failed to open file '%s'\n",files.b[vi].b);
-				exit(1);
+				printf("File Size: %lu\n",file_size);
+				printf("Number of threads: %lu\n",nthreads);
+				printf("Bytes to Read Per Thread: %lu\n",bytes_per_thread);
+				printf("___\n");
 			}
-			file_size=lseek(fd,0,SEEK_END);
-			close(fd);
-		}
 
-		// Get # of processors for machine
-		nthreads=nproc;
-		bytes_per_thread=ceil((double)file_size/nthreads);
-		if(!quiet)
-		{
-			printf("File Size: %lu\n",file_size);
-			printf("Number of threads: %lu\n",nthreads);
-			printf("Bytes to Read Per Thread: %lu\n",bytes_per_thread);
-			printf("___\n");
-		}
+			// Divide file into nthreads parts, open threads for each part
+			for(size_t k=0;k<nthreads;++k)
+			{
+				if(!quiet)
+					printf("Creating thread #%lu: ",k);
+				size_t size=(k*bytes_per_thread+bytes_per_thread<file_size)?
+					(bytes_per_thread):
+					(file_size-k*bytes_per_thread);
 
-		// Divide file into nthreads parts, open threads for each part
-		for(size_t i=0;i<nthreads;++i)
-		{
-			if(!quiet)
-				printf("Creating thread #%lu: ",i);
-			size_t size=(i*bytes_per_thread+bytes_per_thread<file_size)?
-				(bytes_per_thread):
-				(file_size-i*bytes_per_thread);
+				fi[k]=(FileInfo){
+					.quiet=quiet,
+						.thread_id=k,
+						.file_name=argv[i],
+						.offset=k*bytes_per_thread,
+						.size=size
+				};
 
-			fi[i]=(FileInfo){
-				.quiet=quiet,
-					.thread_id=i,
-					.file_name=files.b[vi].b,
-					.offset=i*bytes_per_thread,
-					.size=size
-			};
+				if(!quiet)
+					printf("Reading %lu starting at %lu\n",fi[k].size,fi[k].offset);
+				pthread_create(thread_pool+k,NULL,t,fi+k);
+			}
 
 			if(!quiet)
-				printf("Reading %lu starting at %lu\n",fi[i].size,fi[i].offset);
-			pthread_create(thread_pool+i,NULL,t,fi+i);
+				printf("main\n");
+			SUM_TYPE sum=0;
+			for(size_t k=0;k<nthreads;++k)
+			{
+				pthread_join(thread_pool[k],NULL);
+				sum+=fi[k].sum;
+			}
+
+			if(!quiet)
+				printf("___\n");
+			if(human)
+				printf("%s\t%s\n",human_number(sum),argv[i]);
+			else
+				printf("%lu\t%s\n",sum,argv[i]);
+
 		}
-
-		if(!quiet)
-			printf("main\n");
-		SUM_TYPE sum=0;
-		for(size_t i=0;i<nthreads;++i)
-		{
-			pthread_join(thread_pool[i],NULL);
-			sum+=fi[i].sum;
-		}
-
-		if(!quiet)
-			printf("___\n");
-		if(human)
-			printf("%s\t%s\n",human_number(sum),files.b[vi].b);
-		else
-			printf("%lu\t%s\n",sum,files.b[vi].b);
-
 	}
 
-	vec_free(&files);
 }
