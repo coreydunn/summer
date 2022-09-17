@@ -13,7 +13,7 @@
 
 #define SUM_TYPE uint64_t
 #define BLOCK_SIZE 8192
-#define MAX_THREADS 4
+#define MAX_THREADS 32
 #define min(a,b) ((a<b)?(a):(b))
 #define HELPMSG "usage: summer [-jN] [-vh] [--help] [FILENAME]"
 
